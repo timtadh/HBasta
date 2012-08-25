@@ -23,9 +23,9 @@ setup(
     name         = 'hbasta',
     version      = '0.1',
     description  = 'HBase Thrift interface wrapper',
-    author       = 'Adam Ever-Hadani',
-    author_email = 'adamhadani@gmail.com',
-    url          = 'http://github.com/adamhadani/hbasta',
+    author       = 'Adam Ever-Hadani & Tim Henderson',
+    author_email = 'tim.tadh@gmail.com',
+    url          = 'http://github.com/timtadh/hbasta',
     keywords     = ['hbasta', 'hbase', 'thrift'],
     classifiers = [
         "Programming Language :: Python",
@@ -54,12 +54,6 @@ with hbase in python programs.
         ]
     },
  
-    install_requires = [
-        "Thrift>=0.5.0"
-    ],
-
-    test_suite = "nose.collector",
-
     zip_safe = True
 )
 
