@@ -2,3 +2,5 @@
 hbase/
 hbasta.egg-info/
 .*.swp
+cdeps
+env
