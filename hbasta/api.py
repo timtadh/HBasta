@@ -75,6 +75,10 @@ class Client(object):
         """Disable an HBase table"""
         self.thrift_client.disableTable(table)
 
+    def drop_table(self, table):
+        """Disable an HBase table"""
+        self.thrift_client.deleteTable(table)
+
     def is_table_enabled(self, table):
         """Check if table is enabled"""
         return self.thrift_client.isTableEnabled(table)
