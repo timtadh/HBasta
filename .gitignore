@@ -1,3 +1,4 @@
 *.pyc
 hbase/
 hbasta.egg-info/
+.*.swp
