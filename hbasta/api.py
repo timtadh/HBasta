@@ -6,7 +6,7 @@
 #For licensing see the LICENSE file in the top level directory.
 
 """
-hbasta._api
+hbasta.api
 
 API Wrapper for HBase Thrift Client
 """
@@ -14,6 +14,7 @@ API Wrapper for HBase Thrift Client
 import sys
 import logging
 from itertools import imap
+import struct
  
 from thrift import Thrift
 from thrift.transport import TSocket
@@ -23,11 +24,32 @@ from thrift.protocol import TBinaryProtocol
 from hbase import Hbase
 from hbase.ttypes import *
 
+int_struct = struct.Struct('<Q')
+
 def _row_to_dict(row):
     """Convert an HBase Row as returned by the Thrift API
     to a native python dictionary, mapping column names to values"""
-    return dict(imap(lambda i: (i[0], i[1].value), \
-                     row.columns.iteritems()))
+    return dict((name, _bytes_to_value(cell.value)) 
+            for name, cell in row.columns.iteritems())
+
+def _value_to_bytes(value):
+    if isinstance(value, unicode):
+        return "unicode:" + value.encode('utf8')
+    elif isinstance(value, str):
+        return "str:" + value
+    elif isinstance(value, int):
+        return "int:" + int_struct.pack(value)
+    raise ValueError, str(type(value))
+
+def _bytes_to_value(tagged_bytes):
+    tag, bytes = tagged_bytes.split(':', 1)
+    if tag == 'unicode':
+        return bytes.decode('utf8')
+    elif tag == 'str':
+        return bytes
+    elif tag == 'int':
+        return int_struct.unpack(bytes)[0]
+    raise ValueError, str(tag)
 
 class Client(object):
     """HBase API entry point"""
@@ -96,8 +118,11 @@ class Client(object):
             cols - dictionary of fully qualified column name pointing to data 
             (e.g { 'family:colname': value } )
         """
-        mutations = [Mutation(False, col, val) for col, val in cols.iteritems()]
-        self.thrift_client.mutateRow(table, row, mutations, {})
+        mutations = [
+            Mutation(False, col, _value_to_bytes(val))
+            for col, val in cols.iteritems()
+        ]
+        self.thrift_client.mutateRow(table, _value_to_bytes(row), mutations, {})
 
     def get_row(self, table, row, colspec=None):
         """Get single row of data, possibly filtered
@@ -110,9 +135,10 @@ class Client(object):
                       of column names
         """
         if not colspec:
-            rows = self.thrift_client.getRow(table, row)
+            rows = self.thrift_client.getRow(table, _value_to_bytes(row), {})
         else:
-            rows = self.thrift_client.getRowWithColumns(table, row, colspec)
+            rows = self.thrift_client.getRowWithColumns(table,
+                _value_to_bytes(row), colspec, {})
 
         if rows:
             return _row_to_dict(rows[0])
@@ -121,30 +147,32 @@ class Client(object):
 
     def delete_row(self, table, row):
         """Completely delete all data associated with row"""
-        self.thrift_client.deleteAllRow(table, row)
+        self.thrift_client.deleteAllRow(table, _value_to_bytes(row), {})
 
     def atomic_increment(self, table, row, column, val=1):
         """Atomic increment of value for given column by the
         value specified"""
-        return self.thrift_client.atomicIncrement(table, row, column, val)
+        return self.thrift_client.atomicIncrement(table, _value_to_bytes(row), column, val)
 
     def scan(self, table, colspec, start_row=None, start_prefix=None, stop_row=None):
 
         def scanner_open(table, start_row, colspec):
             """Open a scanner for table at given start_row,
             fetching columns as specified in colspec"""
-            return self.thrift_client.scannerOpen(table, start_row, colspec, {})
+            return self.thrift_client.scannerOpen(table,
+                _value_to_bytes(start_row), colspec, {})
 
         def scanner_open_with_stop(table, start_row, stop_row, colspec):
             """Open a scanner for table at given start_row, scanning up to
             specified stop_row"""
-            return self.thrift_client.scannerOpenWithStop(table, start_row,
-                stop_row, colspec, {})
+            return self.thrift_client.scannerOpenWithStop(table,
+                _value_to_bytes(start_row), _value_to_bytes(stop_row), colspec, 
+                {})
 
         def scanner_open_with_prefix(table, start_prefix, colspec):
             """Open a scanner for a given prefix on row name"""
-            return self.thrift_client.scannerOpenWithPrefix(table, start_prefix,
-                colspec, {})
+            return self.thrift_client.scannerOpenWithPrefix(table,
+                _value_to_bytes(start_prefix), colspec, {})
 
         def scanner_close(scanner_id):
             """Close a scanner"""
@@ -155,7 +183,10 @@ class Client(object):
 
             rows = self.thrift_client.scannerGet(scanner_id)
             if rows:
-                return (rows[0].row, _row_to_dict(rows[0]))
+                return (
+                    _bytes_to_value(rows[0].row), 
+                    _row_to_dict(rows[0])
+                )
             else:
                 return None
 
