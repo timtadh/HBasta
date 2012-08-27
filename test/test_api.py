@@ -4,13 +4,23 @@
 #Email: tim.tadh@gmail.com
 #For licensing see the LICENSE file in the top level directory.
 
+import sys, os
+sys.path.insert(0, '/home/hendersont/code/HBasta')
+
 from hbasta.api import Client
+from hbasta import api 
+
 
 client = Client('localhost', 9090)
 table = '__test__'
 
 def create():
-    client.create_table(table, ['x', 'y', 'z'])
+    try:
+        client.create_table(table, ['x', 'y', 'z'])
+    except:
+        client.disable_table(table)
+        client.drop_table(table)
+        client.create_table(table, ['x', 'y', 'z'])
 
 def drop():
     try:
@@ -101,6 +111,33 @@ def test_scan_stop():
             client.add_row(table, id, {'x':'a', 'y':'b', 'z':'c'})
         ids = set(id for id, cols in client.scan(table, ('x',), 0, stop_row=20))
         assert ids == set(xrange(20))
+    finally:
+        drop()
+
+def test_scan_stop_tuple():
+    print sys.path
+    create()
+    try:
+        for x in xrange(10):
+            for y in xrange(10):
+                client.add_row(table, (x,y), {'x':'a', 'y':'b', 'z':'c'})
+        ids = set(id 
+            for id, cols in client.scan(table, ('x',), (0,0), stop_row=(1,2)))
+        assert ids == set((x,y) 
+            for x in xrange(10) for y in xrange(10) if (x,y) < (1,2))
+    finally:
+        drop()
+
+def test_scan_prefix_tuple():
+    create()
+    try:
+        for x in ['lisa', 'sid', 'jonny', 'marlow', 'mandy']:
+            for y in xrange(10):
+                client.add_row(table, (x,y), {'x':'a', 'y':'b', 'z':'c'})
+        ids = set(id 
+            for id, cols in client.scan(table, ('x',),
+              start_prefix=api.tuple_prefix(('lisa',0), 1)))
+        assert ids == set(('lisa',y) for y in xrange(10))
     finally:
         drop()
 

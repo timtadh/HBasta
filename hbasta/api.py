@@ -13,8 +13,9 @@ API Wrapper for HBase Thrift Client
 
 import sys
 import logging
-from itertools import imap
+from itertools import imap, izip
 import struct
+import types
  
 from thrift import Thrift
 from thrift.transport import TSocket
@@ -24,7 +25,9 @@ from thrift.protocol import TBinaryProtocol
 from hbase import Hbase
 from hbase.ttypes import *
 
-int_struct = struct.Struct('<Q')
+int_format = 'q'
+int_struct = struct.Struct('<q')
+str_format = 's'
 
 def _row_to_dict(row):
     """Convert an HBase Row as returned by the Thrift API
@@ -32,24 +35,80 @@ def _row_to_dict(row):
     return dict((name, _bytes_to_value(cell.value)) 
             for name, cell in row.columns.iteritems())
 
-def _value_to_bytes(value):
-    if isinstance(value, unicode):
-        return "unicode:" + value.encode('utf8')
-    elif isinstance(value, str):
-        return "str:" + value
-    elif isinstance(value, int):
-        return "int:" + int_struct.pack(value)
+def _get_format(tag):
+    if tag == 'int':
+        return int_format
     raise ValueError, str(type(value))
+
+def _get_struct(tag):
+    if tag == 'int':
+        return int_struct
+    return struct.Struct('<'+_get_format(tag))
+
+def _unpack(tag, bytes):
+    if tag == 'unicode':
+        return bytes.encode('utf8')
+    elif tag == 'str':
+        return bytes
+    strct = _get_struct(tag)
+    return strct.unpack(bytes)[0]
+
+def _value_encode(value, recurse=False):
+    if isinstance(value, unicode):
+        bytes = value.encode('utf8')
+        return ( 'unicode', bytes)
+    elif isinstance(value, str):
+        return ( 'str', value)
+    elif isinstance(value, int):
+        return 'int', _get_struct('int').pack(value)
+    elif not recurse and isinstance(value, tuple):
+        return _encode_tuple(value)
+    elif isinstance(value, types.FunctionType):
+        return value()
+    raise ValueError, str(type(value))
+    
+def _encode_tuple(value):
+    tags = list()
+    cells = list()
+    for cell in value:
+        tag, val = _value_encode(cell)
+        cells.append(val.encode('hex'))
+        tags.append(tag)
+    tag = 'tuple:' + ','.join(tags)
+    ret = (tag, '\t'.join(cells))
+    return ret
+
+def tuple_prefix(tup, index):
+    def encoding():
+        tags = list()
+        cells = list()
+        for cell in tup:
+            tag, val = _value_encode(cell)
+            cells.append(val.encode('hex'))
+            tags.append(tag)
+        tag = 'tuple:' + ','.join(tags)
+        ret = (tag, '\t'.join(cells[:index]))
+        return ret
+    return encoding
+
+def _decode_tuple(bytes):
+    tags, bytes = bytes.split(':', 1)
+    tags = (tag for tag in tags.split(','))
+    cells = (cell.decode('hex') for cell in bytes.split('\t'))
+    ret = tuple(_unpack(tag, cell) for tag, cell in izip(tags, cells))
+    return ret
+
+def _value_to_bytes(value):
+    tag, bytes = _value_encode(value)
+    ret = ':'.join((tag, bytes))
+    print ret
+    return ret
 
 def _bytes_to_value(tagged_bytes):
     tag, bytes = tagged_bytes.split(':', 1)
-    if tag == 'unicode':
-        return bytes.decode('utf8')
-    elif tag == 'str':
-        return bytes
-    elif tag == 'int':
-        return int_struct.unpack(bytes)[0]
-    raise ValueError, str(tag)
+    if tag == 'tuple':
+        return _decode_tuple(bytes)
+    return _unpack(tag, bytes)
 
 class Client(object):
     """HBase API entry point"""
