@@ -52,7 +52,7 @@ def test_get_row():
     create()
     try:
         client.add_row(table, '1', {'x':'a', 'y':'b', 'z':'c'})
-        assert client.get_row(table, '1') == {'x:':'a', 'y:':'b', 'z:':'c'}
+        assert client.get_row(table, '1') == {'x':'a', 'y':'b', 'z':'c'}
     finally:
         drop()
 
@@ -60,7 +60,7 @@ def test_get_row_colspec():
     create()
     try:
         client.add_row(table, 1, {'x':'a', 'y':'b', 'z':'c'})
-        assert client.get_row(table, 1, ('x',)) == {'x:':'a'}
+        assert client.get_row(table, 1, ('x',)) == {'x':'a'}
     finally:
         drop()
 
@@ -68,7 +68,7 @@ def test_delete_row():
     create()
     try:
         client.add_row(table, '1', {'x':'a', 'y':'b', 'z':'c'})
-        assert client.get_row(table, '1') == {'x:':'a', 'y:':'b', 'z:':'c'}
+        assert client.get_row(table, '1') == {'x':'a', 'y':'b', 'z':'c'}
         client.delete_row(table, '1')
         assert len([ row for row in client.scan(table, ('x',), '0') ]) == 0
     finally:
@@ -79,7 +79,7 @@ def test_scan_1_row():
     try:
         client.add_row(table, '1', {'x':'a', 'y':'b', 'z':'c'})
         row = client.scan(table, ('x',), '1').next()
-        assert row == ('1', {'x:':'a'})
+        assert row == ('1', {'x':'a'})
     finally:
         drop()
 

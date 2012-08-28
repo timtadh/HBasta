@@ -32,7 +32,7 @@ str_format = 's'
 def _row_to_dict(row):
     """Convert an HBase Row as returned by the Thrift API
     to a native python dictionary, mapping column names to values"""
-    return dict((name, _bytes_to_value(cell.value)) 
+    return dict((name[:-1], _bytes_to_value(cell.value)) 
             for name, cell in row.columns.iteritems())
 
 def _get_format(tag):
