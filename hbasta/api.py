@@ -101,7 +101,6 @@ def _decode_tuple(bytes):
 def _value_to_bytes(value):
     tag, bytes = _value_encode(value)
     ret = ':'.join((tag, bytes))
-    print ret
     return ret
 
 def _bytes_to_value(tagged_bytes):
