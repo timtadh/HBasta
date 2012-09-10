@@ -32,7 +32,7 @@ str_format = 's'
 def _row_to_dict(row):
     """Convert an HBase Row as returned by the Thrift API
     to a native python dictionary, mapping column names to values"""
-    return dict((name[:-1], _bytes_to_value(cell.value)) 
+    return dict((name.replace('fam:', ''), _bytes_to_value(cell.value)) 
             for name, cell in row.columns.iteritems())
 
 def _get_format(tag):
@@ -145,7 +145,7 @@ class Client(object):
             col_families - list of column family names
         """
         self.thrift_client.createTable(table, 
-                [ColumnDescriptor(name=c+':') for c in col_families])
+                [ColumnDescriptor(name='fam:'+c) for c in col_families])
 
     def enable_table(self, table):
         """Enable an HBase table"""
@@ -177,7 +177,7 @@ class Client(object):
             (e.g { 'family:colname': value } )
         """
         mutations = [
-            Mutation(False, col, _value_to_bytes(val))
+            Mutation(False, 'fam:'+col, _value_to_bytes(val))
             for col, val in cols.iteritems()
         ]
         self.thrift_client.mutateRow(table, _value_to_bytes(row), mutations, {})
@@ -196,7 +196,7 @@ class Client(object):
             rows = self.thrift_client.getRow(table, _value_to_bytes(row), {})
         else:
             rows = self.thrift_client.getRowWithColumns(table,
-                _value_to_bytes(row), colspec, {})
+                _value_to_bytes(row), tuple('fam:'+col for col in colspec), {})
 
         if rows:
             return _row_to_dict(rows[0])
@@ -213,6 +213,8 @@ class Client(object):
         return self.thrift_client.atomicIncrement(table, _value_to_bytes(row), column, val)
 
     def scan(self, table, colspec, start_row=None, start_prefix=None, stop_row=None):
+
+        colspec = tuple('fam:'+col for col in colspec)
 
         def scanner_open(table, start_row, colspec):
             """Open a scanner for table at given start_row,
