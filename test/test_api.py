@@ -4,7 +4,7 @@
 #Email: tim.tadh@gmail.com
 #For licensing see the LICENSE file in the top level directory.
 
-import sys, os
+import sys, os, time
 sys.path.insert(0, '/home/hendersont/code/HBasta')
 
 from hbasta.api import Client
@@ -23,12 +23,18 @@ def create():
         client.create_table(table, ['x', 'y', 'z'])
 
 def drop():
-    try:
-        client.disable_table(table)
-        client.drop_table(table)
-    except:
-        client.disable_table(table)
-        client.drop_table(table)
+    global client
+    client.stop_caching()
+    tries = 1
+    while tries > 0:
+        try:
+            client.disable_table(table)
+            client.drop_table(table)
+        except:
+            tries -= 1
+            if tries > 0:
+                time.sleep(5)
+                client = Client('localhost', 9090)
 
 def test_create_table():
     create()
@@ -112,8 +118,6 @@ def test_scan_prefix():
         ids = set(id for id, cols in client.scan(table, ('x',), start_prefix='1'))
         assert ids == set(str(id) for id in xrange(10, 20)) | set(['1'])
         client.stop_caching()
-        ids = set(id for id, cols in client.scan(table, ('x',), start_prefix='1'))
-        assert ids == set(str(id) for id in xrange(10, 20)) | set(['1'])
     finally:
         drop()
 

@@ -109,6 +109,21 @@ def _bytes_to_value(tagged_bytes):
         return _decode_tuple(bytes)
     return _unpack(tag, bytes)
 
+def str_increment(s):
+    """Increment and truncate a byte string (for sorting purposes)
+
+    This functions returns the shortest string that sorts after the given
+    string when compared using regular string comparison semantics.
+
+    This function increments the last byte that is smaller than ``0xFF``, and
+    drops everything after it. If the string only contains ``0xFF`` bytes,
+    `None` is returned.
+    """
+    for i in xrange(len(s) - 1, -1, -1):
+        if s[i] != '\xff':
+            return s[:i] + chr(ord(s[i]) + 1)
+    return None
+
 class WriteOnReadCaching(Exception): pass
 
 class Client(object):
@@ -239,27 +254,10 @@ class Client(object):
         if self.caching: raise WriteOnReadCaching
         return self.thrift_client.atomicIncrement(table, _value_to_bytes(row), column, val)
 
-    def scan(self, table, colspec, start_row=None, start_prefix=None, stop_row=None):
+    def scan(self, table, colspec, start_row=None, start_prefix=None,
+             stop_row=None, batch_size=500):
 
         colspec = tuple('fam:'+col for col in colspec)
-
-        def scanner_open(table, start_row, colspec):
-            """Open a scanner for table at given start_row,
-            fetching columns as specified in colspec"""
-            return self.thrift_client.scannerOpen(table,
-                _value_to_bytes(start_row), colspec, {})
-
-        def scanner_open_with_stop(table, start_row, stop_row, colspec):
-            """Open a scanner for table at given start_row, scanning up to
-            specified stop_row"""
-            return self.thrift_client.scannerOpenWithStop(table,
-                _value_to_bytes(start_row), _value_to_bytes(stop_row), colspec, 
-                {})
-
-        def scanner_open_with_prefix(table, start_prefix, colspec):
-            """Open a scanner for a given prefix on row name"""
-            return self.thrift_client.scannerOpenWithPrefix(table,
-                _value_to_bytes(start_prefix), colspec, {})
 
         def scanner_close(scanner_id):
             """Close a scanner"""
@@ -288,6 +286,17 @@ class Client(object):
         assert start_row is not None or start_prefix is not None
         assert start_prefix is None or stop_row is None
 
+        if start_row is None:
+            start_row = ''
+
+        start_row = _value_to_bytes(start_row)
+        if stop_row:
+            stop_row = _value_to_bytes(stop_row)
+
+        if start_prefix is not None:
+            start_row = _value_to_bytes(start_prefix)
+            stop_row = str_increment(start_row)
+
         cache_key = ('scan', str(table),
             tuple(colspec) if colspec is not None else None,
             str(start_row), str(start_prefix), str(stop_row))
@@ -295,15 +304,11 @@ class Client(object):
             for row in self.cache[cache_key]:
                 yield row
 
-        if start_row is not None and stop_row is not None:
-            scanner_id = scanner_open_with_stop(table, start_row, stop_row,
-                                                colspec)
-        elif start_row is not None: 
-            scanner_id = scanner_open(table, start_row, colspec)
-        elif start_prefix is not None:
-            scanner_id = scanner_open_with_prefix(table, start_prefix, colspec)
-        else:
-            raise RuntimeError, "Unexpected method input"
+        scan = TScan(startRow=start_row,
+                     stopRow=stop_row,
+                     columns=colspec,
+                     caching=batch_size)
+        scanner_id = self.thrift_client.scannerOpenWithScan(table, scan, {})
 
         try:
             row = scanner_get(scanner_id)
