@@ -52,6 +52,11 @@ def test_get_row():
     create()
     try:
         client.add_row(table, '1', {'x':'a', 'y':'b', 'z':'c'})
+        client.start_caching()
+        assert client.get_row(table, '1') == {'x':'a', 'y':'b', 'z':'c'}
+        assert client.get_row(table, '1') == {'x':'a', 'y':'b', 'z':'c'}
+        assert client.get_row(table, '1') == {'x':'a', 'y':'b', 'z':'c'}
+        client.stop_caching()
         assert client.get_row(table, '1') == {'x':'a', 'y':'b', 'z':'c'}
     finally:
         drop()
@@ -99,6 +104,14 @@ def test_scan_prefix():
     try:
         for id in xrange(100):
             client.add_row(table, str(id), {'x':'a', 'y':'b', 'z':'c'})
+        client.start_caching()
+        ids = set(id for id, cols in client.scan(table, ('x',), start_prefix='1'))
+        assert ids == set(str(id) for id in xrange(10, 20)) | set(['1'])
+        ids = set(id for id, cols in client.scan(table, ('x',), start_prefix='1'))
+        assert ids == set(str(id) for id in xrange(10, 20)) | set(['1'])
+        ids = set(id for id, cols in client.scan(table, ('x',), start_prefix='1'))
+        assert ids == set(str(id) for id in xrange(10, 20)) | set(['1'])
+        client.stop_caching()
         ids = set(id for id, cols in client.scan(table, ('x',), start_prefix='1'))
         assert ids == set(str(id) for id in xrange(10, 20)) | set(['1'])
     finally:

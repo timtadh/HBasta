@@ -109,9 +109,11 @@ def _bytes_to_value(tagged_bytes):
         return _decode_tuple(bytes)
     return _unpack(tag, bytes)
 
+class WriteOnReadCaching(Exception): pass
+
 class Client(object):
     """HBase API entry point"""
-    
+
     LOG = logging.getLogger("HBasta")
 
     def __init__(self, host, port):
@@ -123,6 +125,17 @@ class Client(object):
         self.host = host
         self.port = int(port)
         self._client = None
+        self.caching = False
+        self.cache = None
+
+    def start_caching(self):
+        if not self.caching:
+            self.cache = dict()
+            self.caching = True
+
+    def stop_caching(self):
+        self.caching = False
+        self.cache = None
 
     @property
     def thrift_client(self):
@@ -139,24 +152,28 @@ class Client(object):
 
     def create_table(self, table, col_families):
         """Create a new HBase table
-    
+
         Params
             table - Table name
             col_families - list of column family names
         """
+        if self.caching: raise WriteOnReadCaching
         self.thrift_client.createTable(table, 
                 [ColumnDescriptor(name='fam:'+c) for c in col_families])
 
     def enable_table(self, table):
         """Enable an HBase table"""
+        if self.caching: raise WriteOnReadCaching
         self.thrift_client.enableTable(table)
 
     def disable_table(self, table):
         """Disable an HBase table"""
+        if self.caching: raise WriteOnReadCaching
         self.thrift_client.disableTable(table)
 
     def drop_table(self, table):
         """Disable an HBase table"""
+        if self.caching: raise WriteOnReadCaching
         self.thrift_client.deleteTable(table)
 
     def is_table_enabled(self, table):
@@ -176,6 +193,7 @@ class Client(object):
             cols - dictionary of fully qualified column name pointing to data 
             (e.g { 'family:colname': value } )
         """
+        if self.caching: raise WriteOnReadCaching
         mutations = [
             Mutation(False, 'fam:'+col, _value_to_bytes(val))
             for col, val in cols.iteritems()
@@ -192,6 +210,10 @@ class Client(object):
             colspec - Specifier of which columns to return, in the form of list 
                       of column names
         """
+        cache_key = ('get', str(table), str(row),
+            tuple(colspec) if colspec is not None else None)
+        if self.caching and cache_key in self.cache:
+            return self.cache[cache_key]
         if not colspec:
             rows = self.thrift_client.getRow(table, _value_to_bytes(row), {})
         else:
@@ -199,17 +221,22 @@ class Client(object):
                 _value_to_bytes(row), tuple('fam:'+col for col in colspec), {})
 
         if rows:
-            return _row_to_dict(rows[0])
+            retval = _row_to_dict(rows[0])
+            if self.caching:
+                self.cache[cache_key] = retval
+            return retval
         else:
             return None
 
     def delete_row(self, table, row):
         """Completely delete all data associated with row"""
+        if self.caching: raise WriteOnReadCaching
         self.thrift_client.deleteAllRow(table, _value_to_bytes(row), {})
 
     def atomic_increment(self, table, row, column, val=1):
         """Atomic increment of value for given column by the
         value specified"""
+        if self.caching: raise WriteOnReadCaching
         return self.thrift_client.atomicIncrement(table, _value_to_bytes(row), column, val)
 
     def scan(self, table, colspec, start_row=None, start_prefix=None, stop_row=None):
@@ -261,6 +288,13 @@ class Client(object):
         assert start_row is not None or start_prefix is not None
         assert start_prefix is None or stop_row is None
 
+        cache_key = ('scan', str(table),
+            tuple(colspec) if colspec is not None else None,
+            str(start_row), str(start_prefix), str(stop_row))
+        if self.caching and cache_key in self.cache:
+            for row in self.cache[cache_key]:
+                yield row
+
         if start_row is not None and stop_row is not None:
             scanner_id = scanner_open_with_stop(table, start_row, stop_row,
                                                 colspec)
@@ -273,9 +307,12 @@ class Client(object):
 
         try:
             row = scanner_get(scanner_id)
+            if self.caching: rows = list()
             while row is not None:
+                if self.caching: rows.append(row)
                 yield row
                 row = scanner_get(scanner_id)
+            if self.caching: self.cache[cache_key] = rows
         finally:
             scanner_close(scanner_id)
 
