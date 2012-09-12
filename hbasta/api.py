@@ -215,7 +215,7 @@ class Client(object):
         ]
         self.thrift_client.mutateRow(table, _value_to_bytes(row), mutations, {})
 
-    def get_row(self, table, row, colspec=None):
+    def get_row(self, table, key, colspec=None):
         """Get single row of data, possibly filtered
         using the colspec construct
 
@@ -225,15 +225,17 @@ class Client(object):
             colspec - Specifier of which columns to return, in the form of list 
                       of column names
         """
-        cache_key = ('get', str(table), str(row),
+        key = _value_to_bytes(key)
+        cache_key = ('get_row', str(table), key,
             tuple(colspec) if colspec is not None else None)
         if self.caching and cache_key in self.cache:
             return self.cache[cache_key]
+
         if not colspec:
-            rows = self.thrift_client.getRow(table, _value_to_bytes(row), {})
+            rows = self.thrift_client.getRow(table, key, {})
         else:
             rows = self.thrift_client.getRowWithColumns(table,
-                _value_to_bytes(row), tuple('fam:'+col for col in colspec), {})
+                key, tuple('fam:'+col for col in colspec), {})
 
         if rows:
             retval = _row_to_dict(rows[0])
@@ -242,6 +244,40 @@ class Client(object):
             return retval
         else:
             return None
+
+    def get_rows(self, table, keys, colspec):
+        """Get single row of data, possibly filtered
+        using the colspec construct
+
+        Params:
+            table - Table name
+            key - Row key
+            colspec - Specifier of which columns to return, in the form of list 
+                      of column names
+        """
+        keys = tuple(_value_to_bytes(key) for key in keys)
+        cache_key = ('get_rows', str(table), keys, tuple(colspec))
+        if self.caching and cache_key in self.cache:
+            for row in self.cache[cache_key]:
+                yield row
+            return
+
+        rows = self.thrift_client.getRowsWithColumns(
+          table,
+          keys,
+          tuple('fam:'+col for col in colspec),
+          {}
+        )
+
+        if self.caching: all_rows = list()
+        for row in rows:
+            decoded_row = (
+              _bytes_to_value(row.row),
+              _row_to_dict(row)
+            )
+            if self.caching: all_rows.append(decoded_row)
+            yield decoded_row
+        if self.caching: self.cache[cache_key] = all_rows
 
     def delete_row(self, table, row):
         """Completely delete all data associated with row"""
@@ -292,6 +328,7 @@ class Client(object):
         if self.caching and cache_key in self.cache:
             for row in self.cache[cache_key]:
                 yield row
+            return
 
         scan = TScan(startRow=start_row,
                      stopRow=stop_row,

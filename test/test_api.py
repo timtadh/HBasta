@@ -7,6 +7,8 @@
 import sys, os, time
 sys.path.insert(0, '/home/hendersont/code/HBasta')
 
+import nose
+
 from hbasta.api import Client
 from hbasta import api 
 
@@ -75,6 +77,40 @@ def test_get_row_colspec():
     finally:
         drop()
 
+def test_get_rows():
+    create()
+    try:
+        client.add_row(table, 1, {'x':'a', 'y':'b', 'z':'c'})
+        client.add_row(table, 2, {'x':'a', 'y':'b', 'z':'c'})
+        client.add_row(table, 3, {'x':'a', 'y':'b', 'z':'c'})
+        client.start_caching()
+        print tuple((k, tuple(v.iteritems())) for k,v in client.get_rows(table, (1,2,3), ('x',)))
+        nose.tools.assert_equals(
+          tuple(
+            (k, tuple(v.iteritems()))
+            for k,v in client.get_rows(table, (1,2,3), ('x',))
+          ),
+          (
+            (1, (('x', 'a'),)),
+            (2, (('x', 'a'),)),
+            (3, (('x', 'a'),))
+          )
+        )
+        nose.tools.assert_equals(
+          tuple(
+            (k, tuple(v.iteritems()))
+            for k,v in client.get_rows(table, (1,2,3), ('x',))
+          ),
+          (
+            (1, (('x', 'a'),)),
+            (2, (('x', 'a'),)),
+            (3, (('x', 'a'),))
+          )
+        )
+        client.stop_caching()
+        assert client.get_row(table, 1, ('x',)) == {'x':'a'}
+    finally:
+        drop()
 def test_delete_row():
     create()
     try:
