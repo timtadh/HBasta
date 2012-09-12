@@ -266,22 +266,11 @@ class Client(object):
         def scanner_get(scanner_id):
             """Return current row scanner is pointing to."""
 
-            rows = self.thrift_client.scannerGet(scanner_id)
-            if rows:
-                return (
-                    _bytes_to_value(rows[0].row), 
-                    _row_to_dict(rows[0])
-                )
+            if batch_size == 1:
+                rows = self.thrift_client.scannerGet(scanner_id)
             else:
-                return None
-
-        # unused for now
-        #
-        #def scanner_get_list(self, scanner_id, num_rows):
-        #    """Returns up to num_rows rows starting at current
-        #    scanner location. Returns as a generator expression."""
-        #    rows = self.thrift_client.scannerGetList(scanner_id, num_rows)
-        #    return map(lambda x: (x.row, _row_to_dict(x)), rows)
+                rows = self.thrift_client.scannerGetList(scanner_id, batch_size)
+            return rows
 
         assert start_row is not None or start_prefix is not None
         assert start_prefix is None or stop_row is None
@@ -311,13 +300,18 @@ class Client(object):
         scanner_id = self.thrift_client.scannerOpenWithScan(table, scan, {})
 
         try:
-            row = scanner_get(scanner_id)
-            if self.caching: rows = list()
-            while row is not None:
-                if self.caching: rows.append(row)
-                yield row
-                row = scanner_get(scanner_id)
-            if self.caching: self.cache[cache_key] = rows
+            if self.caching: all_rows = list()
+            while True:
+                rows = scanner_get(scanner_id)
+                for row in rows:
+                    decoded_row = (
+                      _bytes_to_value(row.row),
+                      _row_to_dict(row)
+                    )
+                    if self.caching: all_rows.append(decoded_row)
+                    yield decoded_row
+                if len(rows) < batch_size: break
+            if self.caching: self.cache[cache_key] = all_rows
         finally:
             scanner_close(scanner_id)
 
